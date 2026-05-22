@@ -1,0 +1,23 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Local checkpoints & outputs
+checkpoints/
+*.keras
+output/
+
+# Logs / runtime
+attendance_log.csv
+
+# Archives (extracted Face Recognition folder is kept; skip duplicate bulk zip)
+*.zip
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/

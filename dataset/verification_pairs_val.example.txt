@@ -1,0 +1,6 @@
+# Example verification trials (PDF §5): column1 column2 label (1=same person, 0=different)
+# Paths are relative to --dataset-root (use project dataset/ folder).
+# Replace with Kaggle verification_pairs_val.txt + verification_data/ when available.
+
+Face Recognition/train/Andre_103_jpeg.rf.BuOGCznCkFiUalqxakf6.jpeg Face Recognition/train/Andre_104_jpeg.rf.tPQPulScdDvgH3PV1jXr.jpeg 1
+Face Recognition/train/Andre_103_jpeg.rf.BuOGCznCkFiUalqxakf6.jpeg Face Recognition/train/Federico_103_jpeg.rf.HbvV24nRFbUlcBU5MY2S.jpeg 0
