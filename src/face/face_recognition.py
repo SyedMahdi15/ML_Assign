@@ -18,7 +18,8 @@ TIMESTAMP_FORMAT = "%d/%m/%Y %H:%M"
 UNKNOWN_LABEL = "Unknown"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+from src.paths import PROJECT_ROOT
+
 DEFAULT_FACES_DB = PROJECT_ROOT / "dataset" / "Face Recognition" / "train"
 
 
@@ -54,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--log-file",
         type=Path,
-        default=Path("attendance_log.csv"),
+        default=PROJECT_ROOT / "attendance_log.csv",
         help="CSV file used for ENTER and EXIT events.",
     )
     parser.add_argument(

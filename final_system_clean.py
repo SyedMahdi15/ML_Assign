@@ -6,10 +6,11 @@ import numpy as np
 
 import mediapipe as mp
 
-from emotion_detector import EmotionDetector
-from liveness_challenge import LivenessChallenge, LivenessResult
+from src.emotion.emotion_detector import EmotionDetector
+from src.liveness.liveness_challenge import LivenessChallenge, LivenessResult
+from src.paths import PROJECT_ROOT
 
-from face_recognition import (
+from src.face.face_recognition import (
     build_face_database,
     detect_and_recognise,
     update_attendance,
@@ -21,15 +22,15 @@ from face_recognition import (
 # CONFIG
 # ============================================
 
-EMOTION_MODEL_PATH = "models/emotion_model.h5"
-FACE_DB_PATH = Path("dataset/faces_db")
+EMOTION_MODEL_PATH = PROJECT_ROOT / "models" / "emotion_model.h5"
+FACE_DB_PATH = PROJECT_ROOT / "dataset" / "faces_db"
 
 MODEL_NAME = "Facenet512"
 DISTANCE_THRESHOLD = 0.40
 SCALE_FACTOR = 0.5
 EXIT_TIMEOUT = 3.0
 
-ATTENDANCE_LOG = Path("attendance_log.csv")
+ATTENDANCE_LOG = PROJECT_ROOT / "attendance_log.csv"
 
 WINDOW_NAME = "AI Face Security Attendance System"
 

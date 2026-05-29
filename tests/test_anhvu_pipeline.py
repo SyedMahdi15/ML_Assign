@@ -9,6 +9,13 @@ This script implements:
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 from dataclasses import dataclass
 import math
 import time
@@ -17,8 +24,8 @@ import cv2
 import mediapipe as mp
 import numpy as np
 
-from emotion_detector import EmotionDetector
-from liveness_challenge import LivenessChallenge, LivenessResult
+from src.emotion.emotion_detector import EmotionDetector
+from src.liveness.liveness_challenge import LivenessChallenge, LivenessResult
 
 EMOTION_DISPLAY_MAP = {
     "happy": "Happy",
@@ -245,7 +252,7 @@ def main() -> None:
 
     emotion_detector: EmotionDetector | None = None
     try:
-        emotion_detector = EmotionDetector(model_path="emotion_model.h5")
+        emotion_detector = EmotionDetector()
         print("Emotion detector is ready.")
     except Exception as exc:  # noqa: BLE001
         print(f"Warning: Could not load emotion model. Emotion stage will be skipped. Reason: {exc}")

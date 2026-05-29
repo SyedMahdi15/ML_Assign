@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 """
 Real-time face verification for COS30082 (Facial Recognition with Emotion & Liveness).
 
@@ -12,8 +19,6 @@ meets --cosine-threshold. Optionally loads separate models for emotion and liven
 checkpoints are provided. Registration of new employees is done with register.py.
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 from pathlib import Path
@@ -25,7 +30,7 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
-from similarity import cosine_similarity
+from src.face.similarity import cosine_similarity
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,7 +64,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def project_root() -> Path:
-    return Path(__file__).resolve().parent
+    return Path(__file__).resolve().parent.parent
 
 
 def load_encoder(path: Path) -> tuple[keras.Model, int]:

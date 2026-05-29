@@ -6,6 +6,13 @@ negative log-likelihood on a held-out validation subset.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 import argparse
 from pathlib import Path
 
@@ -15,12 +22,19 @@ from scipy.optimize import minimize
 from tensorflow import keras
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
+from src.paths import PROJECT_ROOT
+
 EMOTION_LABELS = ["angry", "disgust", "fear", "happy", "sad", "surprise", "neutral"]
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Calibrate class-wise temperatures for emotion model.")
-    parser.add_argument("--model", type=Path, default=Path("emotion_model.h5"), help="Path to trained .h5 model.")
+    parser.add_argument(
+        "--model",
+        type=Path,
+        default=PROJECT_ROOT / "models" / "emotion_model.h5",
+        help="Path to trained .h5 model.",
+    )
     parser.add_argument("--data-root", type=Path, required=True, help="Folder-per-class dataset root.")
     parser.add_argument("--img-size", type=int, default=96, help="Input image size.")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size.")

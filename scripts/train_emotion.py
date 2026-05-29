@@ -22,6 +22,13 @@ Model specification (as requested):
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 import argparse
 import csv
 from pathlib import Path
@@ -35,6 +42,8 @@ from tensorflow import keras
 from tensorflow.keras import layers
 from tensorflow.keras.applications import MobileNetV2
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+
+from src.paths import PROJECT_ROOT
 
 
 EMOTION_LABELS = [
@@ -83,7 +92,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-model",
         type=Path,
-        default=Path("emotion_model.h5"),
+        default=PROJECT_ROOT / "models" / "emotion_model.h5",
         help="Output path for best trained model.",
     )
     return parser.parse_args()

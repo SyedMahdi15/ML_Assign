@@ -3,6 +3,8 @@ import numpy as np
 
 from tensorflow.keras.models import load_model
 
+from src.paths import PROJECT_ROOT
+
 
 emotion_labels = [
     'Angry',
@@ -19,11 +21,14 @@ class EmotionDetector:
 
     def __init__(
         self,
-        model_path="models/emotion_model.h5"
+        model_path=None,
     ):
 
+        if model_path is None:
+            model_path = PROJECT_ROOT / "models" / "emotion_model.h5"
+
         self.model = load_model(
-            model_path,
+            str(model_path),
             compile=False
         )
 

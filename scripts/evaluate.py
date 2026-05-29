@@ -1,10 +1,17 @@
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 """
 Verification evaluation (PDF §2.2–2.3): ROC / AUC with cosine similarity & Euclidean distance.
 
 Compares classification embedding head vs metric-learning encoder on the same trial list.
 """
-
-from __future__ import annotations
 
 import argparse
 import json
@@ -17,7 +24,7 @@ from sklearn.metrics import auc, roc_auc_score, roc_curve
 from tensorflow import keras
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
-from data_loader import (
+from src.face.data_loader import (
     collect_roboflow_flat_images,
     generate_verification_pairs,
     parse_pairs_file,
@@ -25,7 +32,7 @@ from data_loader import (
     stratified_train_val_split,
     write_pairs_file,
 )
-from similarity import roc_scores_cosine, roc_scores_neg_euclidean
+from src.face.similarity import roc_scores_cosine, roc_scores_neg_euclidean
 
 
 def parse_args() -> argparse.Namespace:
@@ -52,7 +59,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def project_root() -> Path:
-    return Path(__file__).resolve().parent
+    return Path(__file__).resolve().parent.parent
 
 
 def load_image_batch(paths: List[Path], img_size: int) -> np.ndarray:

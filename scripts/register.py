@@ -6,6 +6,13 @@ Images are used by infer.py to build centroid embeddings for verification.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 import argparse
 import re
 import time
@@ -38,7 +45,7 @@ def sanitize(name: str) -> str:
 
 def main() -> None:
     args = parse_args()
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parent.parent
     gallery = (args.gallery if args.gallery is not None else root / "gallery").resolve()
     ident = sanitize(args.name)
     out_dir = gallery / ident

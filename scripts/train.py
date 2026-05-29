@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 """
 COS30082 training pipeline — face verification and auxiliary modules.
 
@@ -15,8 +22,8 @@ checkpoints/. Use --weights imagenet when SSL permits downloads; use --weights n
 fallback when pretrained weights cannot be fetched.
 
 Examples:
-  python train.py --task classifier --data-dir "dataset/Face Recognition/train"
-  python train.py --task metric --data-dir "dataset/Face Recognition/train"
+  python scripts/train.py --task classifier --data-dir "dataset/Face Recognition/train"
+  python scripts/train.py --task metric --data-dir "dataset/Face Recognition/train"
   python train.py --task emotion --data-root dataset/emotion_data/train_data
   python train.py --task liveness --live-dir dataset/liveness/live --spoof-dir dataset/liveness/spoof
 """
@@ -28,7 +35,7 @@ from pathlib import Path
 import numpy as np
 from tensorflow import keras
 
-from data_loader import (
+from src.face.data_loader import (
     collect_binary_folders,
     collect_roboflow_flat_images,
     collect_subfolder_classes,
@@ -38,7 +45,7 @@ from data_loader import (
     sample_triplet_indices,
     stratified_train_val_split,
 )
-from model import (
+from src.face.model import (
     TripletTrainer,
     build_emotion_classifier,
     build_face_classifier,
@@ -94,7 +101,7 @@ def backbone_weights(args: argparse.Namespace) -> str | None:
 
 
 def project_root() -> Path:
-    return Path(__file__).resolve().parent
+    return Path(__file__).resolve().parent.parent
 
 
 def train_classifier(args: argparse.Namespace) -> None:

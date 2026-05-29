@@ -9,6 +9,13 @@ The goal is to validate logical correctness before manual camera testing.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 from dataclasses import dataclass
 import os
 from pathlib import Path
@@ -18,8 +25,9 @@ import numpy as np
 from tensorflow import keras
 from tensorflow.keras import layers
 
-from emotion_detector import EmotionDetector
-from liveness_challenge import LivenessChallenge, LivenessResult
+from src.emotion.emotion_detector import EmotionDetector
+from src.liveness.liveness_challenge import LivenessChallenge, LivenessResult
+from src.paths import PROJECT_ROOT
 
 
 def load_env_file(env_path: Path) -> dict[str, str]:
@@ -227,8 +235,10 @@ def test_liveness_blink_and_progress(timeout_per_stage: float, ear_threshold: fl
 
 def main() -> None:
     """Execute all smoke tests and print clear verification logs."""
-    env_values = load_env_file(Path(".env"))
-    emotion_model_path = Path(env_values.get("EMOTION_MODEL_PATH", "emotion_model.h5"))
+    env_values = load_env_file(PROJECT_ROOT / ".env")
+    emotion_model_path = Path(
+        env_values.get("EMOTION_MODEL_PATH", str(PROJECT_ROOT / "models" / "emotion_model.h5"))
+    )
     timeout_per_stage = float(env_values.get("TIMEOUT_PER_STAGE", "5.0"))
     ear_threshold = float(env_values.get("EAR_THRESHOLD", "0.2"))
 
