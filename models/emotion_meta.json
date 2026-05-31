@@ -1,0 +1,5 @@
+{
+  "img_size": 48,
+  "classes": ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"],
+  "architecture": "legacy_gray"
+}
