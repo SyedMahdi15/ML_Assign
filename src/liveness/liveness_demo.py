@@ -19,9 +19,9 @@ import time
 from typing import Sequence
 
 import cv2
-import mediapipe as mp
 import numpy as np
 
+from .face_mesh_adapter import create_face_mesh
 from .gesture_controller import DNNGestureController, GestureMode, FILTER_SEQUENCE
 from .liveness_challenge import LivenessChallenge, LivenessResult
 
@@ -235,7 +235,7 @@ def main() -> None:
     liveness.start()
     gesture = DNNGestureController(max_num_hands=1)
 
-    face_mesh = mp.solutions.face_mesh.FaceMesh(
+    face_mesh = create_face_mesh(
         static_image_mode=False,
         max_num_faces=1,
         refine_landmarks=True,

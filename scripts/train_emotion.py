@@ -31,6 +31,7 @@ if str(_ROOT) not in sys.path:
 
 import argparse
 import csv
+import json
 from pathlib import Path
 from typing import Iterator
 
@@ -72,11 +73,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--data-root",
         type=Path,
-        default=None,
-        help=(
-            "Optional folder-per-class dataset root. "
-            "Use this when you already extracted FER2013 into class folders."
-        ),
+        default=PROJECT_ROOT / "dataset" / "Emotion_Detection",
+        help="Folder-per-class dataset root (default: dataset/Emotion_Detection).",
     )
     parser.add_argument("--img-size", type=int, default=96, help="Target image size, default 96.")
     parser.add_argument("--batch-size", type=int, default=64, help="Batch size.")
@@ -483,6 +481,19 @@ def main() -> None:
 
     print("Training completed successfully.")
     print(f"Best model saved to: {output_model}")
+    meta_path = output_model.parent / "emotion_meta.json"
+    meta_path.write_text(
+        json.dumps(
+            {
+                "img_size": args.img_size,
+                "classes": EMOTION_LABELS,
+                "architecture": "mobilenetv2",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    print(f"Saved metadata to: {meta_path}")
     total_epochs_run = len(history_phase1.history.get("loss", []))
     if history_phase2 is not None:
         total_epochs_run += len(history_phase2.history.get("loss", []))

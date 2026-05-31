@@ -19,8 +19,9 @@ import math
 from typing import Sequence
 
 import cv2
-import mediapipe as mp
 import numpy as np
+
+from .hands_adapter import HAND_CONNECTIONS, HandsAdapter, draw_hand_landmarks
 
 
 class GestureMode(str, Enum):
@@ -98,16 +99,12 @@ class DNNGestureController:
         flick_min_interval_s: float = 0.08,
     ) -> None:
         """Initialize MediaPipe Hands and internal runtime state."""
-        self._mp_hands = mp.solutions.hands
-        self._hands = self._mp_hands.Hands(
-            static_image_mode=False,
+        self._hands = HandsAdapter(
             max_num_hands=max_num_hands,
             min_detection_confidence=min_detection_confidence,
             min_tracking_confidence=min_tracking_confidence,
         )
-
-        self._drawer = mp.solutions.drawing_utils
-        self._connections = self._mp_hands.HAND_CONNECTIONS
+        self._connections = HAND_CONNECTIONS
 
         # Palm-swipe detector state.
         # The swipe system is intentionally separated from per-finger classification.
@@ -285,7 +282,7 @@ class DNNGestureController:
         handedness_label = None
         if results.multi_handedness:
             handedness_label = results.multi_handedness[0].classification[0].label
-        self._drawer.draw_landmarks(annotated, hand_landmarks, self._connections)
+        draw_hand_landmarks(annotated, hand_landmarks, self._connections)
 
         count, _ = self.count_extended_fingers(hand_landmarks.landmark, handedness_label)
         mode, label, confidence = self._mode_from_finger_count(count)

@@ -1,0 +1,6 @@
+{
+  "img_size": 128,
+  "classes": ["spoof", "live"],
+  "architecture": "cnn_binary",
+  "threshold": 0.55
+}
