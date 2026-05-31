@@ -1,28 +1,13 @@
-﻿"""Standalone liveness demo for D/HD anti-spoofing defense.
-
-This script is intentionally independent from the full attendance system and focuses
-only on robust challenge-response liveness verification with a post-pass hold-still gate.
-
-Core security behavior:
-1) Run a strict 3-stage randomized challenge via LivenessChallenge.
-2) When challenge state becomes PASSED, do NOT unlock immediately.
-3) Enter a 3-second HOLD STILL calibration gate.
-4) Continuously measure geometric landmark stability. If movement exceeds threshold,
-   reset the hold timer back to 3.0 seconds.
-5) Transition to final UNLOCKED state only when a full, clean hold interval completes.
-"""
+﻿"""Backward-compatible launcher for the standalone liveness demo."""
 
 from __future__ import annotations
 
-import math
-import time
-from collections import deque
-from enum import Enum
-from typing import Sequence
+import sys
+from pathlib import Path
 
-import cv2
-import mediapipe as mp
-import numpy as np
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 # Import the already-audited strict 3-stage challenge state machine.

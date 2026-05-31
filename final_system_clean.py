@@ -1,41 +1,39 @@
 import cv2
 import csv
-import os
 import time
 from pathlib import Path
 from datetime import datetime
 import numpy as np
- 
-import mediapipe as mp
- 
+
 from src.paths import PROJECT_ROOT
-
 from src.emotion.emotion_detector import EmotionDetector
-
-from src.liveness.liveness_challenge import (
-    LivenessChallenge,
-    LivenessResult
-)
-
+from src.face.gallery import capture_registration_samples, sanitize_identity
+from src.liveness.face_mesh_adapter import create_face_mesh
+from src.liveness.liveness_challenge import LivenessChallenge, LivenessResult
+from src.liveness.spoof_detector import SpoofDetector
 from src.face.face_recognition import (
     build_face_database,
     detect_and_recognise,
     update_attendance,
     ensure_csv_exists,
-    log_event
+    log_event,
 )
+from src.face.verification import default_encoder_path
+from src.system.webcam import open_camera
  
 # ============================================
 # CONFIG
 # ============================================
  
 EMOTION_MODEL_PATH = PROJECT_ROOT / "models" / "emotion_model.h5"
+LIVENESS_MODEL_PATH = PROJECT_ROOT / "models" / "liveness_model.h5"
 FACE_DB_PATH = PROJECT_ROOT / "dataset" / "faces_db"
- 
-MODEL_NAME = "Facenet512"
-DISTANCE_THRESHOLD = 0.40
+ENCODER_PATH = default_encoder_path()
+COSINE_THRESHOLD = 0.42
+SPOOF_THRESHOLD = 0.55
 SCALE_FACTOR = 0.5
 EXIT_TIMEOUT = 3.0
+REGISTRATION_CAPTURES = 8
  
 ATTENDANCE_LOG = PROJECT_ROOT / "attendance_log.csv"
  
@@ -90,6 +88,8 @@ last_name = "—"
 last_emotion = "—"
 last_confidence = 0.0
 last_liveness = "—"
+last_spoof_score = 0.0
+last_emotion_icon = "—"
 last_message = "—"
 last_intruder_capture = 0
 quality_status = "GOOD"
@@ -178,7 +178,22 @@ def draw_status_row(img, label, value, x, y, color=WHITE):
     draw_text(img, str(value), (x + 115, y), color, 0.48, 1)
  
  
-def draw_face_box(frame, x, y, w, h, color, label, emotion, confidence, message):
+def largest_face_crop(frame, cascade):
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    faces = cascade.detectMultiScale(
+        gray,
+        scaleFactor=1.1,
+        minNeighbors=5,
+        minSize=(70, 70),
+    )
+    if len(faces) == 0:
+        return None
+    x, y, w, h = max(faces, key=lambda box: box[2] * box[3])
+    crop = frame[y : y + h, x : x + w]
+    return crop if crop.size else None
+
+
+def draw_face_box(frame, x, y, w, h, color, label, emotion, confidence, message, emotion_icon):
     cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
  
     line_len = 25
@@ -195,7 +210,7 @@ def draw_face_box(frame, x, y, w, h, color, label, emotion, confidence, message)
     cv2.line(frame, (x + w, y + h), (x + w - line_len, y + h), color, 3)
     cv2.line(frame, (x + w, y + h), (x + w, y + h - line_len), color, 3)
  
-    main_text = f"{label} | {emotion.title()} | Live"
+    main_text = f"{emotion_icon} {label} | {emotion.title()} | Live"
  
     (tw, th), _ = cv2.getTextSize(main_text, FONT, 0.55, 1)
  
@@ -276,19 +291,20 @@ def build_dashboard(video_frame, fps, registered_people):
     draw_status_row(
         dashboard,
         "Emotion",
-        f"{last_emotion} ({last_confidence:.2f})",
+        f"{last_emotion_icon} {last_emotion} ({last_confidence:.2f})",
         PANEL_X + 18,
         PANEL_Y + 92,
-        YELLOW
+        YELLOW,
     )
- 
+
+    spoof_text = f"{last_liveness} ({last_spoof_score:.2f})" if spoof_detector else last_liveness
     draw_status_row(
         dashboard,
         "Liveness",
-        last_liveness,
+        spoof_text,
         PANEL_X + 18,
         PANEL_Y + 119,
-        GREEN if "PASSED" in last_liveness else ORANGE
+        GREEN if "PASSED" in last_liveness else ORANGE,
     )
  
     draw_status_row(
@@ -321,8 +337,8 @@ def build_dashboard(video_frame, fps, registered_people):
     draw_panel(dashboard, PANEL_X, PANEL_Y + 255, PANEL_W, 110, "PRESENT")
  
     if present_people:
-        y_pos = PANEL_Y + 210
- 
+        y_pos = PANEL_Y + 255 + 58
+
         for person in sorted(present_people):
             draw_text(
                 dashboard,
@@ -337,15 +353,15 @@ def build_dashboard(video_frame, fps, registered_people):
         draw_text(
             dashboard,
             "Nobody present.",
-            (PANEL_X + 22, PANEL_Y + 210),
+            (PANEL_X + 22, PANEL_Y + 255 + 58),
             RED,
             0.50,
-            1
+            1,
         )
- 
+
     draw_panel(dashboard, PANEL_X, PANEL_Y + 380, PANEL_W, 120, "REGISTERED")
- 
-    y_pos = PANEL_Y + 335
+
+    y_pos = PANEL_Y + 380 + 58
  
     if registered_people:
         for person in registered_people[:4]:
@@ -370,7 +386,7 @@ def build_dashboard(video_frame, fps, registered_people):
  
     draw_panel(dashboard, PANEL_X, PANEL_Y + 515, PANEL_W, 210, "LOG")
  
-    y_pos = PANEL_Y + 470
+    y_pos = PANEL_Y + 515 + 58
  
     for log in recent_logs[-7:]:
         draw_text(
@@ -393,11 +409,11 @@ def build_dashboard(video_frame, fps, registered_people):
  
     draw_text(
         dashboard,
-        "Q: Quit    R: Reset Liveness",
+        "Q: Quit   R: Reset Liveness   N: Register",
         (35, DASHBOARD_HEIGHT - 17),
         CYAN,
-        0.55,
-        1
+        0.50,
+        1,
     )
  
     draw_text(
@@ -533,7 +549,13 @@ emotion_detector = EmotionDetector(
 )
  
 print("Emotion detector loaded")
- 
+
+spoof_detector = SpoofDetector.try_load(LIVENESS_MODEL_PATH, threshold=SPOOF_THRESHOLD)
+if spoof_detector is not None:
+    print(f"Spoof detector loaded: {LIVENESS_MODEL_PATH}")
+else:
+    print("Warning: spoof detector not found. Challenge-only liveness will be used.")
+
 liveness = LivenessChallenge(
     timeout_per_stage_s=5.0,
     blink_ear_threshold=0.20
@@ -544,13 +566,15 @@ liveness.start()
 print("Liveness challenge started")
  
 print("Loading face database...")
- 
-face_database = build_face_database(
+print(f"Encoder: {ENCODER_PATH}")
+
+face_verifier = build_face_database(
     faces_db=FACE_DB_PATH,
-    model_name=MODEL_NAME
+    encoder_path=ENCODER_PATH,
+    cosine_threshold=COSINE_THRESHOLD,
 )
- 
-registered_people = sorted(list(face_database.keys()))
+
+registered_people = face_verifier.identity_names
  
 print("Face database loaded")
  
@@ -573,9 +597,7 @@ if face_cascade.empty():
 # MEDIAPIPE FACE MESH
 # ============================================
  
-mp_face_mesh = mp.solutions.face_mesh
- 
-face_mesh = mp_face_mesh.FaceMesh(
+face_mesh = create_face_mesh(
     static_image_mode=False,
     max_num_faces=1,
     refine_landmarks=True,
@@ -587,14 +609,13 @@ face_mesh = mp_face_mesh.FaceMesh(
 # WEBCAM
 # ============================================
  
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
- 
+cap = open_camera(0)
+
 if not cap.isOpened():
     raise RuntimeError("Webcam not opened.")
- 
+
 print("Webcam opened successfully")
-print("Press Q to quit")
-print("Press R to reset liveness")
+print("Press Q to quit | R to reset liveness | N to register new user")
  
 add_log("Webcam opened successfully")
  
@@ -637,7 +658,40 @@ try:
         )
  
         last_liveness = state.status.value
- 
+
+        face_crop_for_spoof = largest_face_crop(frame, face_cascade)
+        if face_crop_for_spoof is not None and spoof_detector is not None:
+            is_live, live_score = spoof_detector.predict_live(face_crop_for_spoof)
+            last_spoof_score = live_score
+            if not is_live and state.status in {LivenessResult.IN_PROGRESS, LivenessResult.PASSED}:
+                last_liveness = "FAILED (SPOOF)"
+                last_message = "Printed/screen face detected"
+                add_log("Spoof detected by CNN")
+                draw_text(frame, "Spoof Detected - Press R", (20, 165), RED, 0.70, 2)
+                dashboard = build_dashboard(frame, fps, registered_people)
+                cv2.imshow(WINDOW_NAME, dashboard)
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord("q"):
+                    add_log("System closed")
+                    break
+                if key == ord("r"):
+                    liveness.reset()
+                    liveness.start()
+                    add_log("Liveness challenge reset")
+                if key == ord("n"):
+                    name = input("Enter name to register: ").strip()
+                    if name:
+                        _, saved = capture_registration_samples(
+                            name,
+                            gallery_root=FACE_DB_PATH,
+                            count=REGISTRATION_CAPTURES,
+                            cascade=face_cascade,
+                        )
+                        face_verifier.reload_gallery()
+                        registered_people = face_verifier.identity_names
+                        add_log(f"Registered {sanitize_identity(name)} ({saved} photos)")
+                continue
+
         cv2.rectangle(
             frame,
             (0, 0),
@@ -662,10 +716,8 @@ try:
             recognised_faces = detect_and_recognise(
                 frame=frame,
                 cascade=face_cascade,
-                database=face_database,
-                model_name=MODEL_NAME,
-                distance_threshold=DISTANCE_THRESHOLD,
-                scale_factor=SCALE_FACTOR
+                database=face_verifier,
+                scale_factor=SCALE_FACTOR,
             )
  
             before_people = set(present_people)
@@ -700,32 +752,29 @@ try:
  
                 try:
                     emotion, confidence = emotion_detector.predict_emotion(face_crop)
- 
                 except Exception as e:
                     print("Emotion error:", e)
                     add_log(f"Emotion error: {e}")
                     emotion = "unknown"
                     confidence = 0.0
- 
+
+                emotion_icon = EmotionDetector.icon_for(emotion)
                 person_name = face.label
                 message = smart_greeting(emotion)
- 
+
                 last_name = person_name
                 last_emotion = emotion.title()
+                last_emotion_icon = emotion_icon
                 last_confidence = confidence
                 last_message = message
- 
+
                 if person_name == "Unknown":
- 
                     box_color = RED
- 
-                    last_message = "⚠ INTRUDER DETECTED"
- 
+                    last_message = "Unknown face - press N to register"
                     save_intruder(frame)
- 
                 else:
                     box_color = GREEN
- 
+
                 draw_face_box(
                     frame,
                     x,
@@ -736,7 +785,8 @@ try:
                     person_name,
                     emotion,
                     confidence,
-                    message
+                    message,
+                    emotion_icon,
                 )
  
         elif state.status == LivenessResult.FAILED:
@@ -774,6 +824,21 @@ try:
             liveness.start()
             add_log("Liveness challenge reset")
             print("Liveness challenge reset")
+
+        if key == ord("n"):
+            name = input("Enter name to register: ").strip()
+            if name:
+                _, saved = capture_registration_samples(
+                    name,
+                    gallery_root=FACE_DB_PATH,
+                    count=REGISTRATION_CAPTURES,
+                    cascade=face_cascade,
+                )
+                face_verifier.reload_gallery()
+                registered_people = face_verifier.identity_names
+                add_log(f"Registered {sanitize_identity(name)} ({saved} photos)")
+                last_message = f"Registered {sanitize_identity(name)}"
+                print(f"Registered {sanitize_identity(name)} with {saved} photos")
  
 finally:
     end_time = datetime.now()
