@@ -21,10 +21,10 @@ import math
 import time
 
 import cv2
-import mediapipe as mp
 import numpy as np
 
 from src.emotion.emotion_detector import EmotionDetector
+from src.liveness.face_mesh_adapter import create_face_mesh
 from src.liveness.liveness_challenge import LivenessChallenge, LivenessResult
 
 EMOTION_DISPLAY_MAP = {
@@ -271,8 +271,7 @@ def main() -> None:
     baseline_geom: GeometryFeatures | None = None
     baseline_ready = False
 
-    mp_face_mesh = mp.solutions.face_mesh
-    face_mesh = mp_face_mesh.FaceMesh(
+    face_mesh = create_face_mesh(
         static_image_mode=False,
         max_num_faces=1,
         refine_landmarks=True,
