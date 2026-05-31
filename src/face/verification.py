@@ -71,36 +71,36 @@ def gallery_centroids(
     gallery_root: Path,
     encoder: keras.Model,
     img_size: int,
-) -> Tuple[List[str], np.ndarray]:
+) -> Tuple[List[str], np.ndarray, List[List[np.ndarray]]]:
     names: List[str] = []
     vectors: List[np.ndarray] = []
+    prototypes: List[List[np.ndarray]] = []
     gallery_root = gallery_root.expanduser().resolve()
 
     if not gallery_root.is_dir():
-        return names, np.zeros((0, 1), dtype=np.float32)
+        return names, np.zeros((0, 1), dtype=np.float32), prototypes
 
     for person_dir in sorted(path for path in gallery_root.iterdir() if path.is_dir()):
         embeddings: List[np.ndarray] = []
         for image_path in sorted(person_dir.iterdir()):
             if image_path.suffix.lower() not in IMAGE_EXTENSIONS:
                 continue
-            raw = tf.io.read_file(str(image_path))
-            try:
-                image = tf.image.decode_image(raw, channels=3, expand_animations=False)
-            except tf.errors.InvalidArgumentError:
+            image_bgr = cv2.imread(str(image_path))
+            if image_bgr is None:
                 continue
-            image = tf.cast(tf.image.resize(image, [img_size, img_size]), tf.float32)
-            batch = preprocess_input(image).numpy()[np.newaxis, ...]
-            embedding = encoder.predict(batch, verbose=0)[0].astype(np.float32)
-            embeddings.append(embedding)
+            embedding = encode_face_bgr(image_bgr, encoder, img_size)
+            if embedding is not None:
+                embeddings.append(embedding)
 
         if embeddings:
             names.append(person_dir.name)
-            vectors.append(np.mean(np.stack(embeddings, axis=0), axis=0))
+            stacked = np.stack(embeddings, axis=0)
+            vectors.append(np.mean(stacked, axis=0))
+            prototypes.append(embeddings)
 
     if not vectors:
-        return [], np.zeros((0, 1), dtype=np.float32)
-    return names, np.stack(vectors, axis=0)
+        return [], np.zeros((0, 1), dtype=np.float32), prototypes
+    return names, np.stack(vectors, axis=0), prototypes
 
 
 def best_match(
@@ -108,20 +108,30 @@ def best_match(
     names: List[str],
     gallery_embeddings: np.ndarray,
     cosine_threshold: float,
+    margin: float = 0.04,
+    gallery_prototypes: List[List[np.ndarray]] | None = None,
 ) -> Tuple[str, float, str]:
     if gallery_embeddings.shape[0] == 0:
         return UNKNOWN_LABEL, -1.0, ""
 
-    best_index = 0
-    best_similarity = -1.0
+    scores: List[float] = []
     for index in range(gallery_embeddings.shape[0]):
-        similarity = cosine_similarity(query, gallery_embeddings[index])
-        if similarity > best_similarity:
-            best_similarity = similarity
-            best_index = index
+        if gallery_prototypes and index < len(gallery_prototypes) and gallery_prototypes[index]:
+            person_score = max(
+                cosine_similarity(query, prototype)
+                for prototype in gallery_prototypes[index]
+            )
+        else:
+            person_score = cosine_similarity(query, gallery_embeddings[index])
+        scores.append(person_score)
 
+    best_index = int(np.argmax(scores))
+    best_similarity = scores[best_index]
     closest_name = names[best_index]
-    if best_similarity >= cosine_threshold:
+
+    sorted_scores = sorted(scores, reverse=True)
+    second_best = sorted_scores[1] if len(sorted_scores) > 1 else -1.0
+    if best_similarity >= cosine_threshold and (best_similarity - second_best) >= margin:
         return closest_name, best_similarity, closest_name
     return UNKNOWN_LABEL, best_similarity, closest_name
 
@@ -136,6 +146,7 @@ class FaceVerifier:
     cosine_threshold: float
     names: List[str]
     gallery_embeddings: np.ndarray
+    gallery_prototypes: List[List[np.ndarray]]
 
     @classmethod
     def load(
@@ -149,7 +160,9 @@ class FaceVerifier:
         encoder_file = (encoder_path or default_encoder_path(root)).resolve()
         encoder, img_size = load_encoder(encoder_file)
         gallery_root = gallery_root.expanduser().resolve()
-        names, gallery_embeddings = gallery_centroids(gallery_root, encoder, img_size)
+        names, gallery_embeddings, gallery_prototypes = gallery_centroids(
+            gallery_root, encoder, img_size
+        )
 
         if not names:
             raise ValueError(
@@ -165,6 +178,7 @@ class FaceVerifier:
             cosine_threshold=cosine_threshold,
             names=names,
             gallery_embeddings=gallery_embeddings,
+            gallery_prototypes=gallery_prototypes,
         )
 
     @property
@@ -172,7 +186,7 @@ class FaceVerifier:
         return list(self.names)
 
     def reload_gallery(self) -> None:
-        self.names, self.gallery_embeddings = gallery_centroids(
+        self.names, self.gallery_embeddings, self.gallery_prototypes = gallery_centroids(
             self.gallery_root,
             self.encoder,
             self.img_size,
@@ -187,5 +201,6 @@ class FaceVerifier:
             self.names,
             self.gallery_embeddings,
             self.cosine_threshold,
+            gallery_prototypes=self.gallery_prototypes,
         )
         return label, similarity

@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--cosine-threshold",
         type=float,
-        default=0.42,
+        default=0.30,
         help=(
             "Min cosine similarity vs gallery centroid to accept ID. "
             "If always Unknown, lower gradually (e.g. 0.35); if many false IDs, raise."
@@ -81,6 +81,7 @@ def main() -> None:
     img_size = verifier.img_size
     names = verifier.names
     gall_vecs = verifier.gallery_embeddings
+    gall_protos = verifier.gallery_prototypes
 
     emotion_net: keras.Model | None = None
     emotion_classes: list[str] = []
@@ -125,7 +126,11 @@ def main() -> None:
                     continue
 
                 label, sim, closest = best_match(
-                    embedding, names, gall_vecs, args.cosine_threshold
+                    embedding,
+                    names,
+                    gall_vecs,
+                    args.cosine_threshold,
+                    gallery_prototypes=gall_protos,
                 )
 
                 emotion_txt = ""

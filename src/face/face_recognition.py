@@ -115,6 +115,23 @@ def build_face_database(
     )
 
 
+def extract_padded_face_crop(
+    frame: np.ndarray,
+    x: int,
+    y: int,
+    w: int,
+    h: int,
+    pad_ratio: float = 0.15,
+) -> np.ndarray:
+    """Crop a face region with the same padding used during webcam registration."""
+    pad = int(pad_ratio * max(w, h))
+    x1 = max(0, x - pad)
+    y1 = max(0, y - pad)
+    x2 = min(frame.shape[1], x + w + pad)
+    y2 = min(frame.shape[0], y + h + pad)
+    return frame[y1:y2, x1:x2]
+
+
 def detect_and_recognise(
     frame,
     cascade: cv2.CascadeClassifier,
@@ -141,7 +158,7 @@ def detect_and_recognise(
         w_full = int(w / scale_factor)
         h_full = int(h / scale_factor)
 
-        face_crop = frame[y_full : y_full + h_full, x_full : x_full + w_full]
+        face_crop = extract_padded_face_crop(frame, x_full, y_full, w_full, h_full)
         if face_crop.size == 0:
             continue
 
