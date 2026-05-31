@@ -2,31 +2,28 @@ from __future__ import annotations
 
 import argparse
 import csv
-import re
-from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
 import cv2
-import numpy as np
-from deepface import DeepFace
 
-
-TIMESTAMP_FORMAT = "%d/%m/%Y %H:%M"
-UNKNOWN_LABEL = "Unknown"
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
-
+from src.face.verification import (
+    UNKNOWN_LABEL,
+    FaceVerifier,
+    default_encoder_path,
+)
 from src.paths import PROJECT_ROOT
 
-DEFAULT_FACES_DB = PROJECT_ROOT / "dataset" / "Face Recognition" / "train"
+TIMESTAMP_FORMAT = "%d/%m/%Y %H:%M"
+DEFAULT_GALLERY = PROJECT_ROOT / "dataset" / "faces_db"
 
 
 @dataclass
 class RecognitionResult:
     name: str
-    distance: float | None
+    similarity: float | None
 
 
 @dataclass
@@ -41,16 +38,25 @@ class FaceBox:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Real-time face recognition and entry/exit logging with OpenCV + DeepFace."
+        description="Real-time face verification attendance with a trained Keras embedding model."
     )
     parser.add_argument(
-        "--faces-db",
+        "--gallery",
         type=Path,
-        default=DEFAULT_FACES_DB,
-        help=(
-            "Face image folder: either one subfolder per person, or (Roboflow export) "
-            "flat images named like Name_123_jpeg...."
-        ),
+        default=DEFAULT_GALLERY,
+        help="Gallery root with one subfolder per person (default: dataset/faces_db).",
+    )
+    parser.add_argument(
+        "--encoder",
+        type=Path,
+        default=None,
+        help="Trained embedding .keras (default: checkpoints/classifier/embedding_extractor.keras).",
+    )
+    parser.add_argument(
+        "--cosine-threshold",
+        type=float,
+        default=0.42,
+        help="Minimum cosine similarity to accept an identity.",
     )
     parser.add_argument(
         "--log-file",
@@ -58,24 +64,7 @@ def parse_args() -> argparse.Namespace:
         default=PROJECT_ROOT / "attendance_log.csv",
         help="CSV file used for ENTER and EXIT events.",
     )
-    parser.add_argument(
-        "--camera-index",
-        type=int,
-        default=0,
-        help="OpenCV camera index.",
-    )
-    parser.add_argument(
-        "--model-name",
-        type=str,
-        default="Facenet512",
-        help="DeepFace embedding model name.",
-    )
-    parser.add_argument(
-        "--distance-threshold",
-        type=float,
-        default=0.40,
-        help="Maximum cosine distance for a match.",
-    )
+    parser.add_argument("--camera-index", type=int, default=0)
     parser.add_argument(
         "--exit-timeout",
         type=float,
@@ -92,7 +81,7 @@ def parse_args() -> argparse.Namespace:
         "--scale-factor",
         type=float,
         default=0.5,
-        help="Resize factor used before detection and recognition.",
+        help="Resize factor used before Haar detection.",
     )
     return parser.parse_args()
 
@@ -113,135 +102,24 @@ def log_event(csv_path: Path, name: str, event: str, timestamp: datetime) -> Non
         writer.writerow([name, event, timestamp.strftime(TIMESTAMP_FORMAT)])
 
 
-def cosine_distance(embedding_a: np.ndarray, embedding_b: np.ndarray) -> float:
-    denominator = np.linalg.norm(embedding_a) * np.linalg.norm(embedding_b)
-    if denominator == 0:
-        return 1.0
-    similarity = float(np.dot(embedding_a, embedding_b) / denominator)
-    return 1.0 - similarity
-
-
-def list_person_images(person_dir: Path) -> List[Path]:
-    return [
-        path
-        for path in sorted(person_dir.iterdir())
-        if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
-    ]
-
-
-def roboflow_flat_person_key(image_path: Path) -> str | None:
-    """Parse Roboflow-style filenames: ``Name_103_jpeg.rf.<id>.jpeg`` -> ``Name``."""
-    m = re.match(r"^(.+)_\d+_jpeg", image_path.stem)
-    return m.group(1) if m else None
-
-
-def embeddings_from_images(image_paths: List[Path], model_name: str) -> List[np.ndarray]:
-    embeddings: List[np.ndarray] = []
-    for image_path in image_paths:
-        try:
-            representations = DeepFace.represent(
-                img_path=str(image_path),
-                model_name=model_name,
-                enforce_detection=False,
-            )
-        except Exception as exc:  # pragma: no cover - depends on local models
-            print(f"Skipping {image_path.name}: {exc}")
-            continue
-
-        if not representations:
-            continue
-
-        embedding = np.array(representations[0]["embedding"], dtype=np.float32)
-        embeddings.append(embedding)
-    return embeddings
-
-
 def build_face_database(
     faces_db: Path,
-    model_name: str,
-) -> Dict[str, List[np.ndarray]]:
-    faces_db = faces_db.expanduser().resolve()
-    if not faces_db.exists():
-        raise FileNotFoundError(
-            f"Face database folder not found: {faces_db}\n"
-            "Create one subfolder per person and place face images inside, "
-            "or use a Roboflow folder with images named like Name_123_jpeg...."
-        )
-
-    database: Dict[str, List[np.ndarray]] = {}
-
-    for person_dir in sorted(path for path in faces_db.iterdir() if path.is_dir()):
-        image_paths = list_person_images(person_dir)
-        embeddings = embeddings_from_images(image_paths, model_name)
-        if embeddings:
-            database[person_dir.name] = embeddings
-
-    if not database:
-        by_person: Dict[str, List[Path]] = defaultdict(list)
-        for path in sorted(faces_db.iterdir()):
-            if not path.is_file() or path.suffix.lower() not in IMAGE_EXTENSIONS:
-                continue
-            person = roboflow_flat_person_key(path)
-            if person:
-                by_person[person].append(path)
-
-        for person, paths in sorted(by_person.items()):
-            embeddings = embeddings_from_images(paths, model_name)
-            if embeddings:
-                database[person] = embeddings
-
-    if not database:
-        raise ValueError(
-            "No usable face images were found. Use subfolders faces_db/<person_name>/ "
-            "or Roboflow-style flat files Name_<id>_jpeg.... in the folder."
-        )
-
-    return database
-
-
-def recognise_face(
-    face_bgr: np.ndarray,
-    database: Dict[str, List[np.ndarray]],
-    model_name: str,
-    distance_threshold: float,
-) -> RecognitionResult:
-    try:
-        representations = DeepFace.represent(
-            img_path=face_bgr,
-            model_name=model_name,
-            enforce_detection=False,
-        )
-    except Exception:
-        return RecognitionResult(name=UNKNOWN_LABEL, distance=None)
-
-    if not representations:
-        return RecognitionResult(name=UNKNOWN_LABEL, distance=None)
-
-    face_embedding = np.array(representations[0]["embedding"], dtype=np.float32)
-
-    best_name = UNKNOWN_LABEL
-    best_distance = float("inf")
-
-    for name, embeddings in database.items():
-        for known_embedding in embeddings:
-            distance = cosine_distance(face_embedding, known_embedding)
-            if distance < best_distance:
-                best_name = name
-                best_distance = distance
-
-    if best_distance <= distance_threshold:
-        return RecognitionResult(name=best_name, distance=best_distance)
-
-    return RecognitionResult(name=UNKNOWN_LABEL, distance=best_distance)
+    encoder_path: Path | None = None,
+    cosine_threshold: float = 0.42,
+) -> FaceVerifier:
+    """Load gallery centroids using the project's fine-tuned embedding network."""
+    return FaceVerifier.load(
+        gallery_root=faces_db,
+        encoder_path=encoder_path,
+        cosine_threshold=cosine_threshold,
+    )
 
 
 def detect_and_recognise(
-    frame: np.ndarray,
+    frame,
     cascade: cv2.CascadeClassifier,
-    database: Dict[str, List[np.ndarray]],
-    model_name: str,
-    distance_threshold: float,
-    scale_factor: float,
+    database: FaceVerifier,
+    scale_factor: float = 0.5,
 ) -> List[FaceBox]:
     if not 0 < scale_factor <= 1:
         raise ValueError("--scale-factor must be between 0 and 1.")
@@ -267,21 +145,15 @@ def detect_and_recognise(
         if face_crop.size == 0:
             continue
 
-        recognition = recognise_face(
-            face_bgr=face_crop,
-            database=database,
-            model_name=model_name,
-            distance_threshold=distance_threshold,
-        )
-
+        label, similarity = database.recognise_face(face_crop)
         results.append(
             FaceBox(
                 x=x_full,
                 y=y_full,
                 w=w_full,
                 h=h_full,
-                label=recognition.name,
-                distance=recognition.distance,
+                label=label,
+                distance=similarity,
             )
         )
 
@@ -316,7 +188,7 @@ def update_attendance(
             log_event(csv_path, person, "EXIT", now)
 
 
-def draw_results(frame: np.ndarray, faces: List[FaceBox], present_people: set[str]) -> np.ndarray:
+def draw_results(frame, faces: List[FaceBox], present_people: set[str]):
     for face in faces:
         is_known = face.label != UNKNOWN_LABEL
         color = (0, 180, 0) if is_known else (0, 0, 255)
@@ -326,7 +198,7 @@ def draw_results(frame: np.ndarray, faces: List[FaceBox], present_people: set[st
         if face.distance is None or face.label == UNKNOWN_LABEL:
             text = face.label
         else:
-            text = f"{face.label} ({face.distance:.2f})"
+            text = f"{face.label} (cos={face.distance:.2f})"
 
         cv2.putText(
             frame,
@@ -363,9 +235,19 @@ def main() -> None:
     args = parse_args()
     ensure_csv_exists(args.log_file)
 
-    print("Loading face database...")
-    database = build_face_database(args.faces_db, args.model_name)
-    print(f"Loaded {sum(len(v) for v in database.values())} face samples for {len(database)} people.")
+    encoder_path = args.encoder or default_encoder_path()
+
+    print(f"Loading gallery from {args.gallery} ...")
+    print(f"Using encoder: {encoder_path}")
+    verifier = build_face_database(
+        faces_db=args.gallery,
+        encoder_path=encoder_path,
+        cosine_threshold=args.cosine_threshold,
+    )
+    print(
+        f"Loaded {len(verifier.identity_names)} registered identities: "
+        f"{', '.join(verifier.identity_names)}"
+    )
 
     cascade = cv2.CascadeClassifier(
         cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
@@ -382,7 +264,7 @@ def main() -> None:
     cached_faces: List[FaceBox] = []
     frame_index = 0
 
-    print("Starting webcam recognition. Press 'q' to quit.")
+    print("Starting webcam verification. Press 'q' to quit.")
 
     try:
         while True:
@@ -396,9 +278,7 @@ def main() -> None:
                 cached_faces = detect_and_recognise(
                     frame=frame,
                     cascade=cascade,
-                    database=database,
-                    model_name=args.model_name,
-                    distance_threshold=args.distance_threshold,
+                    database=verifier,
                     scale_factor=args.scale_factor,
                 )
                 update_attendance(
@@ -418,7 +298,7 @@ def main() -> None:
                 )
 
             display_frame = draw_results(frame.copy(), cached_faces, present_people)
-            cv2.imshow("Lab 07 - Face Recognition Attendance", display_frame)
+            cv2.imshow("COS30082 - Face Verification Attendance", display_frame)
 
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
